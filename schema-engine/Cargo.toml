@@ -1,0 +1,14 @@
+[package]
+name = "continuum_schema_engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Dépendances volontairement minimales (pas de sqlx/actix-web, pas de lib
+# géo lourde) pour rester compilable même sur une toolchain Rust plus
+# ancienne — voir CLAUDE.md. Le clipping géométrique (intersection
+# segment/rectangle) est fait à la main : c'est simple et ça évite une
+# chaîne de dépendances fragile pour un besoin très ciblé.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

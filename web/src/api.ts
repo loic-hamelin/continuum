@@ -99,6 +99,71 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+export interface Bbox {
+  min_lon: number;
+  min_lat: number;
+  max_lon: number;
+  max_lat: number;
+}
+
+export interface ExtractedTrackSegment {
+  track_id: string;
+  start_position: number;
+  end_position: number;
+  coordinates: [number, number][]; // [lon, lat]
+  is_track_start: boolean;
+  is_track_end: boolean;
+}
+
+export interface SwitchPort {
+  endpoint: string;
+  track: string;
+}
+
+export interface RailSwitch {
+  id: string;
+  switch_type: string;
+  ports: Record<string, SwitchPort>;
+}
+
+export interface BufferStop {
+  id: string;
+  track: string;
+  position: number;
+}
+
+export interface Detector {
+  id: string;
+  track: string;
+  position: number;
+}
+
+export interface ExtractedSchema {
+  tracks: ExtractedTrackSegment[];
+  switches: RailSwitch[];
+  buffer_stops: BufferStop[];
+  detectors: Detector[];
+}
+
+export interface LayoutNode {
+  id: string;
+  x: number;
+  y: number;
+  kind: "switch" | "buffer_stop" | "cut";
+}
+
+export interface LayoutEdge {
+  from: string;
+  to: string;
+  track_id: string;
+  lane: number;
+}
+
+export interface SchematicLayout {
+  nodes: LayoutNode[];
+  edges: LayoutEdge[];
+}
+
 export const continuumApi = {
   health: () => request<{ status: string }>("/health"),
   listBranches: () => request<string[]>("/branches"),
@@ -189,4 +254,7 @@ export const continuumApi = {
    */
   seedDemoConflict: () =>
     postJson<{ branch_a: string; branch_b: string }>("/debug/seed-conflict", {}),
+
+  extractSchema: (bbox: Bbox) => postJson<ExtractedSchema>("/schema/extract", bbox),
+  layoutSchema: (bbox: Bbox) => postJson<SchematicLayout>("/schema/layout", bbox),
 };

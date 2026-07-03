@@ -79,6 +79,37 @@ body {
 .banner--warning { background: var(--warning-5); color: var(--warning-80); }
 .banner--error { background: var(--error-5); color: var(--error-80); }
 
+/* --- Onglets (façon éditeur OSRD : onglets simples, soulignés quand actifs) --- */
+
+.tab-bar {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--grey-10);
+  margin-bottom: var(--space-3);
+}
+
+.tab-button {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-2) var(--space-1);
+  font-family: inherit;
+  font-size: var(--text-14);
+  font-weight: 600;
+  color: var(--grey-50);
+  cursor: pointer;
+}
+
+.tab-button:hover {
+  color: var(--grey-90);
+}
+
+.tab-button--active {
+  color: var(--primary-60);
+  border-bottom-color: var(--primary-60);
+}
+
 /* --- Toolbar --- */
 
 .toolbar {
@@ -517,4 +548,51 @@ body {
   font-size: var(--text-12);
   color: var(--grey-50);
   margin-left: var(--space-2);
+}
+
+/* --- Onglet Schéma --- */
+
+.schema-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.schema-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.schema-select-button {
+  border: 1px solid var(--grey-20);
+  border-radius: var(--radius-md);
+  padding: 8px var(--space-3);
+  background: #fff;
+}
+
+.schema-select-button.tab-button--active {
+  background: var(--primary-60);
+  color: #fff;
+  border-color: var(--primary-60);
+}
+
+.schema-map-canvas {
+  height: 480px;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.schematic-svg-wrapper {
+  padding: var(--space-3);
+  overflow-x: auto;
+}
+
+.schematic-svg {
+  width: 100%;
+  min-width: 600px;
+  height: auto;
+  background: var(--grey-5);
+  border-radius: var(--radius-md);
 }

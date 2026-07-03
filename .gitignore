@@ -3,3 +3,15 @@
 
 # Fichiers macOS
 .DS_Store
+
+# Frontend
+/web/node_modules
+/web/dist
+
+# Fichiers d'environnement (contiennent des chemins locaux, jamais commités)
+.env
+
+# Fichiers RailJSON volumineux (le réseau belge complet fait ~30 Mo) —
+# à placer localement dans /data, référencé par la variable
+# d'environnement RAILJSON_PATH (voir .env.example).
+/data/

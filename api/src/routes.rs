@@ -322,6 +322,53 @@ async fn seed_demo_conflict(state: web::Data<AppState>) -> impl Responder {
     }
 }
 
+/// Corps de la requête POST /schema/extract et POST /schema/layout : les
+/// 4 bornes de la sélection rectangulaire de l'utilisateur sur la carte
+/// de l'onglet "Schéma", en longitude/latitude.
+#[derive(Deserialize)]
+struct SchemaSelectionRequest {
+    min_lon: f64,
+    min_lat: f64,
+    max_lon: f64,
+    max_lat: f64,
+}
+
+/// POST /schema/extract — extrait le sous-graphe topologique contenu
+/// dans la sélection rectangulaire (rendu de contrôle géographique brut,
+/// avant mise en forme schématique).
+#[post("/schema/extract")]
+async fn extract_schema(
+    state: web::Data<AppState>,
+    body: web::Json<SchemaSelectionRequest>,
+) -> impl Responder {
+    let bbox = continuum_schema_engine::Bbox {
+        min_lon: body.min_lon,
+        min_lat: body.min_lat,
+        max_lon: body.max_lon,
+        max_lat: body.max_lat,
+    };
+    let schema = continuum_schema_engine::extract_bbox(&state.schema_infra, bbox);
+    HttpResponse::Ok().json(schema)
+}
+
+/// POST /schema/layout — extrait ET met en forme schématiquement le
+/// sous-graphe contenu dans la sélection (combine extraction + layout).
+#[post("/schema/layout")]
+async fn layout_schema(
+    state: web::Data<AppState>,
+    body: web::Json<SchemaSelectionRequest>,
+) -> impl Responder {
+    let bbox = continuum_schema_engine::Bbox {
+        min_lon: body.min_lon,
+        min_lat: body.min_lat,
+        max_lon: body.max_lon,
+        max_lat: body.max_lat,
+    };
+    let schema = continuum_schema_engine::extract_bbox(&state.schema_infra, bbox);
+    let layout = continuum_schema_engine::compute_layout(&schema);
+    HttpResponse::Ok().json(layout)
+}
+
 /// Enregistre tous les endpoints de l'API sur l'application actix-web.
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(health)
@@ -335,5 +382,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(diff_branches)
         .service(merge_branches)
         .service(merge_resolve)
-        .service(seed_demo_conflict);
+        .service(seed_demo_conflict)
+        .service(extract_schema)
+        .service(layout_schema);
 }
