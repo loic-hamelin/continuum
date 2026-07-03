@@ -1,0 +1,63 @@
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  text-align: left;
+  font-family: system-ui, sans-serif;
+}
+
+header h1 {
+  margin-bottom: 0.25rem;
+  color: #1f3864;
+}
+
+.subtitle {
+  color: #666;
+  margin-top: 0;
+}
+
+section {
+  margin-top: 1.5rem;
+}
+
+.columns {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.column {
+  flex: 1;
+  min-width: 280px;
+}
+
+.column h2 {
+  font-size: 1rem;
+  color: #2e7d6b;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+}
+
+li {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #eee;
+}
+
+.kind {
+  display: inline-block;
+  min-width: 130px;
+  font-weight: 600;
+  color: #1f3864;
+}
+
+.added {
+  background: #eaf7f0;
+}
+
+.removed {
+  background: #fbeaea;
+  text-decoration: line-through;
+}

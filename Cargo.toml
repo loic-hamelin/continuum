@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+    "graph-engine",
+    "osrd-bridge",
+    "cli",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "UNLICENSED"          # dépôt privé pour l'instant — à revoir avant toute ouverture open-source
