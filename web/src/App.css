@@ -1,63 +1,212 @@
-.app {
-  max-width: 900px;
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ambient-a-10);
+  color: var(--grey-90);
+  font-family: var(--font-sans);
+  font-size: var(--text-16);
+  line-height: 1.5;
+}
+
+.app-shell {
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 2rem 1rem;
-  text-align: left;
-  font-family: system-ui, sans-serif;
+  padding: var(--space-4);
 }
 
-header h1 {
-  margin-bottom: 0.25rem;
-  color: #1f3864;
+/* --- Header --- */
+
+.app-header {
+  padding: var(--space-4) 0 var(--space-3);
 }
 
-.subtitle {
-  color: #666;
-  margin-top: 0;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-section {
-  margin-top: 1.5rem;
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--primary-60);
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--text-18);
+  font-family: var(--font-mono);
 }
+
+.brand h1 {
+  margin: 0;
+  font-size: var(--text-24);
+  font-weight: 600;
+  color: var(--grey-90);
+}
+
+.brand p {
+  margin: 2px 0 0;
+  color: var(--grey-60);
+  font-size: var(--text-14);
+}
+
+/* --- Message banners (façon OSRD : bandeau plein, icône + texte) --- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-14);
+  margin-bottom: var(--space-3);
+}
+
+.banner code {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  background: rgba(0, 0, 0, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.banner--info { background: var(--info-5); color: var(--info-80); }
+.banner--warning { background: var(--warning-5); color: var(--warning-80); }
+.banner--error { background: var(--error-5); color: var(--error-80); }
+
+/* --- Toolbar --- */
+
+.toolbar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-12);
+  color: var(--grey-60);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.toolbar select {
+  padding: 8px var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--grey-20);
+  background: #fff;
+  font-family: inherit;
+  font-size: var(--text-14);
+  color: var(--grey-90);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+/* --- Boards (vocabulaire OSRD : conteneur = board, avec header) --- */
 
 .columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-3);
+}
+
+.board {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-1);
+  overflow: hidden;
+}
+
+.board-header {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--grey-10);
   display: flex;
-  gap: 2rem;
-  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
-.column {
-  flex: 1;
-  min-width: 280px;
-}
-
-.column h2 {
-  font-size: 1rem;
-  color: #2e7d6b;
-}
-
-ul {
-  list-style: none;
-  padding: 0;
-}
-
-li {
-  padding: 0.4rem 0.6rem;
-  border-bottom: 1px solid #eee;
-}
-
-.kind {
-  display: inline-block;
-  min-width: 130px;
+.board-header h2 {
+  margin: 0;
+  font-size: var(--text-14);
   font-weight: 600;
-  color: #1f3864;
+  color: var(--grey-90);
 }
 
-.added {
-  background: #eaf7f0;
+.board-subtitle {
+  font-size: var(--text-12);
+  color: var(--grey-50);
+  white-space: nowrap;
 }
 
-.removed {
-  background: #fbeaea;
+.node-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.node-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--grey-5);
+  font-size: var(--text-14);
+}
+
+/* --- Kind badges : une teinte par type d'objet, façon catégories de
+   trains dans OSRD (voir theme.css) --- */
+
+.kind-badge {
+  font-size: var(--text-10);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.kind-voie { color: var(--kind-voie-70); background: color-mix(in srgb, var(--kind-voie-30) 30%, white); }
+.kind-appareil { color: var(--kind-appareil-70); background: color-mix(in srgb, var(--kind-appareil-30) 30%, white); }
+.kind-signal { color: var(--kind-signal-70); background: color-mix(in srgb, var(--kind-signal-30) 30%, white); }
+.kind-sillon { color: var(--kind-sillon-70); background: color-mix(in srgb, var(--kind-sillon-30) 30%, white); }
+.kind-horaire { color: var(--kind-horaire-70); background: color-mix(in srgb, var(--kind-horaire-30) 30%, white); }
+.kind-projet { color: var(--kind-projet-70); background: color-mix(in srgb, var(--kind-projet-30) 30%, white); }
+
+.node-added {
+  background: var(--success-5);
+}
+
+.node-removed {
+  background: var(--error-5);
   text-decoration: line-through;
+  opacity: 0.85;
+}
+
+.diff-symbol {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--grey-50);
+}
+
+.node-empty {
+  color: var(--grey-50);
+  font-style: italic;
+  background: transparent;
 }

@@ -10,7 +10,11 @@
 pub mod node;
 pub mod graph;
 pub mod commit;
+pub mod repository;
 
-pub use graph::{Edge, EdgeKind, VersionedGraph};
+pub use graph::{Edge, EdgeKind, GraphChange, GraphDiff, VersionedGraph};
 pub use node::{NodeId, NodeKind, RailNode};
 pub use commit::{Commit, CommitId};
+pub use repository::{
+    MergeConflict, MergeError, Repository, RepositoryError, DEFAULT_BRANCH,
+};

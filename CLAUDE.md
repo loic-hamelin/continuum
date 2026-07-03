@@ -18,9 +18,13 @@ CONTINUUM est un système de gestion de versions (façon Git) appliqué au jumea
 
 ## Pile technique
 
-- **Rust** pour le moteur de graphe (`graph-engine`), le pont OSRD (`osrd-bridge`) et la ligne de commande (`cli`) — workspace Cargo unique à la racine.
-- **React + TypeScript (Vite)** pour l'interface graphique (`web/`).
-- Le lien entre les deux (API HTTP ou WebAssembly) n'est pas encore tranché — c'est une bonne première décision d'architecture à prendre ensemble.
+- **Rust** pour le moteur de graphe (`graph-engine`), le pont OSRD (`osrd-bridge`), l'API HTTP (`api`, sur le modèle d'editoast dans OSRD) et la ligne de commande (`cli`) — workspace Cargo unique à la racine.
+- **React + TypeScript (Vite)** pour l'interface graphique (`web/`), qui consomme l'API via `web/src/api.ts`.
+- Design tokens dans `web/src/theme.css`, inspirés de l'esthétique OSRD — à ajuster une fois comparé à l'interface réelle.
+
+## Point de vigilance pour la première session
+
+Le crate `api` (`graph-engine`, `osrd-bridge`, `cli` compilent tous et ont été vérifiés) a été écrit avec soin mais **n'a pas pu être compilé de bout en bout** dans l'environnement qui a généré ce squelette (Rust 1.75 trop ancien pour résoudre les dernières versions d'`actix-web` sur crates.io). Sur une machine avec un Rust récent (via rustup), ça devrait fonctionner directement — mais la toute première chose à faire est de lancer `cargo build -p continuum-api` et de corriger les éventuelles erreurs de compilation avant d'aller plus loin.
 
 ## Préférences de travail
 

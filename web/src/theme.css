@@ -1,0 +1,77 @@
+/*
+ * CONTINUUM — design tokens
+ *
+ * Repris directement du OSRD Design System (design.osrd.fr et son fichier
+ * de référence OSRD-colours.txt, consultés le 3 juillet 2026) : palette de
+ * couleurs, police IBM Plex, rythme vertical de 8px, échelle typographique.
+ * Seuls le nom du token et son usage ont été adaptés à CONTINUUM ; les
+ * valeurs de couleur sont celles d'OSRD.
+ */
+
+:root {
+  /* --- Greys (teinte chaude, +orange, comme OSRD) --- */
+  --grey-5: #F5F5F5;
+  --grey-10: #EBEBEA;
+  --grey-20: #D3D1CF;
+  --grey-30: #B6B3AF;
+  --grey-40: #94918E;
+  --grey-50: #797671;
+  --grey-60: #5C5955;
+  --grey-70: #494641;
+  --grey-80: #312E2B;
+  --grey-90: #1F1B17;
+
+  /* --- Primary (bleu "premier web", OSRD n'a pas de couleur de marque) --- */
+  --primary-5: #E3EDFC;
+  --primary-10: #C4DAF5;
+  --primary-20: #98C0F5;
+  --primary-30: #72A8F7;
+  --primary-40: #3C8AFF;
+  --primary-50: #256AFA;
+  --primary-60: #1844EF;
+  --primary-70: #201EDE;
+  --primary-80: #1F0F96;
+  --primary-90: #180F47;
+
+  /* --- Ambient A (bleu) : fond d'ambiance principal --- */
+  --ambient-a-5: #F6F8F9;
+  --ambient-a-10: #EFF3F5;
+  --ambient-a-15: #E9EFF2;
+
+  /* --- Utilitaires : info / succès / avertissement / erreur --- */
+  --info-5: #E6F7FF;   --info-30: #70C1E5;   --info-60: #216482;   --info-80: #053348;
+  --success-5: #E6F7EE; --success-30: #3CCA80; --success-60: #0B723C; --success-80: #003F1E;
+  --warning-5: #FDF5E1; --warning-30: #EAA72B; --warning-60: #7D521E; --warning-80: #432807;
+  --error-5: #FFEEED;   --error-30: #FF6868;   --error-60: #D91C1C;   --error-80: #6B0000;
+
+  /* --- Couleurs de catégorie (empruntées à la palette "train" d'OSRD,
+     réutilisées ici pour distinguer les types d'objets du graphe
+     hétérogène plutôt que des catégories de trains) --- */
+  --kind-voie-30: #81AFF1;      --kind-voie-70: #244C91;      /* trainBlue */
+  --kind-appareil-30: #55B7AF;  --kind-appareil-70: #085953;  /* trainMint */
+  --kind-signal-30: #FF8B38;    --kind-signal-70: #803500;    /* trainOrange */
+  --kind-sillon-30: #B3A1FF;    --kind-sillon-70: #58318F;    /* trainPurple */
+  --kind-horaire-30: #45ABE2;   --kind-horaire-70: #165070;   /* trainCyan */
+  --kind-projet-30: #93AD82;    --kind-projet-70: #444D3C;    /* trainSage */
+
+  /* --- Typographie : IBM Plex, choisi par OSRD pour sa lisibilité
+     technique. Chargé depuis Google Fonts dans index.html. --- */
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Échelle typographique OSRD : 10/12/14/16/18/24/32/40/48/72/88 */
+  --text-10: 10px; --text-12: 12px; --text-14: 14px; --text-16: 16px;
+  --text-18: 18px; --text-24: 24px; --text-32: 32px;
+
+  /* --- Rythme vertical de 8px --- */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+
+  /* --- Élévation (boards) --- */
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --elevation-1: 0 1px 2px rgba(31, 27, 23, 0.06), 0 2px 8px rgba(31, 27, 23, 0.08);
+}

@@ -1,0 +1,5 @@
+# Artefacts de compilation Rust (workspace Cargo entier)
+/target
+
+# Fichiers macOS
+.DS_Store

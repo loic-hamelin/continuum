@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CONTINUUM API",
+    "description": "API du moteur de graphe versionné CONTINUUM. À régénérer/étendre au fur et à mesure que les endpoints évoluent.",
+    "version": "0.0.1"
+  },
+  "servers": [{ "url": "http://127.0.0.1:8000" }],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Vérifie que l'API répond",
+        "responses": { "200": { "description": "L'API est disponible" } }
+      }
+    },
+    "/branches": {
+      "get": {
+        "summary": "Liste les branches disponibles",
+        "responses": {
+          "200": {
+            "description": "Liste des noms de branches",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } }
+          }
+        }
+      }
+    },
+    "/branches/{name}": {
+      "get": {
+        "summary": "Renvoie le graphe complet d'une branche",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Le graphe de la branche (nœuds et arêtes)" },
+          "404": { "description": "Branche inconnue" }
+        }
+      }
+    },
+    "/diff": {
+      "get": {
+        "summary": "Compare deux branches",
+        "parameters": [
+          { "name": "base", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Branche de référence" },
+          { "name": "compare", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Branche à comparer" }
+        ],
+        "responses": {
+          "200": { "description": "Nœuds ajoutés / supprimés entre les deux branches" },
+          "404": { "description": "Base ou compare introuvable" }
+        }
+      }
+    }
+  }
+}

@@ -14,12 +14,13 @@ Le moteur de simulation open-source **OSRD** (et son modèle de données **RailJ
 
 - [x] Cadre théorique rédigé (graphe versionné hétérogène, typologie des conflits, fonctions commit/branche/fusion/time machine)
 - [x] Dossier de candidature AAP 2026 FIF/Railenium
-- [x] Squelette du projet : workspace Rust (graph-engine, osrd-bridge, cli) + interface React (web)
-- [ ] Modélisation complète du graphe d'objets ferroviaires versionnés (branches, merge)
+- [x] Squelette du projet : workspace Rust (graph-engine, osrd-bridge, api, cli) + interface React (web) connectée à l'API
+- [ ] Vérifier que `cargo build` passe bien sur votre machine (voir note dans CLAUDE.md — non vérifié en environnement de génération)
+- [x] Modélisation complète du graphe d'objets ferroviaires versionnés (branches, merge)
 - [ ] Prototype d'intégration avec OSRD / RailJSON
 - [ ] Mécanisme de détection de conflits
-- [ ] Lien moteur Rust ↔ interface React (API ou WebAssembly)
 - [ ] Interface de navigation temporelle (time machine)
+- [x] Persistance réelle derrière l'API (base de données plutôt que données en mémoire)
 
 ## Structure du dépôt
 
@@ -28,32 +29,50 @@ continuum/
 ├── docs/            théorie, architecture, notes de conception
 ├── graph-engine/    cœur en Rust : modèle de graphe versionné (nœuds, arêtes, commits, diff)
 ├── osrd-bridge/     crate Rust : intégration avec OSRD / RailJSON (moteur de simulation)
+├── api/             service HTTP en Rust (actix-web), sur le modèle d'editoast dans OSRD —
+│                    expose le graphe via une API REST + spécification OpenAPI
 ├── cli/             interface en ligne de commande, en Rust
-├── web/             interface graphique, en React + TypeScript (Vite)
+├── web/             interface graphique, en React + TypeScript (Vite), qui consomme l'API
 └── examples/        jeux de données d'exemple pour les démonstrateurs
 ```
 
 ## Pile technique
 
-- **Moteur de graphe et logique métier : Rust** (workspace Cargo à la racine, 3 crates : `graph-engine`, `osrd-bridge`, `cli`) — choisi pour la robustesse (typage fort, pas de null, gestion d'erreurs explicite) et la performance sur un modèle de graphe qui devra, à terme, orchestrer des simulations à grande échelle.
-- **Interface graphique : React + TypeScript** (Vite), dans `web/` — pour l'exploration visuelle du graphe, la navigation entre branches et la « time machine ».
+- **Moteur de graphe et logique métier : Rust** (workspace Cargo à la racine, 4 crates : `graph-engine`, `osrd-bridge`, `api`, `cli`).
+- **API : Rust / actix-web** (`api/`), sur le modèle d'**editoast** dans OSRD — un service qui récupère les données du graphe et les expose via des endpoints HTTP (`/branches`, `/branches/{name}`, `/diff`), avec une spécification OpenAPI dans `api/openapi/openapi.json`.
+- **Interface graphique : React + TypeScript** (Vite), dans `web/` — consomme l'API pour explorer le graphe, comparer des branches, et à terme naviguer dans l'historique (« time machine »). Un système de design minimal (`web/src/theme.css`) pose les bases visuelles, inspirées de l'esthétique des outils ferroviaires modernes type OSRD — à affiner une fois que vous aurez comparé avec l'interface réelle.
 - **Interopérabilité** : format RailJSON (OSRD) en entrée/sortie, côté `osrd-bridge`.
-- Le lien entre le moteur Rust et l'interface React reste à concevoir (API HTTP classique, ou compilation du moteur en WebAssembly pour l'exécuter directement dans le navigateur) — sujet à trancher lors d'une prochaine session avec Claude Code.
 
 ## Démarrer en local
 
-**Rust (moteur + CLI)**
+**1. L'API (Rust)** — dans un premier terminal :
 ```
-cargo build
-cargo test
-cargo run -p continuum-cli
+cargo run -p continuum-api
+```
+Elle démarre sur `http://127.0.0.1:8000`. Spécification OpenAPI consultable sur `http://127.0.0.1:8000/api-docs/openapi.json` (à coller dans https://editor.swagger.io pour l'explorer visuellement).
+
+Les données sont stockées dans un fichier SQLite (`api/continuum.db`, ignoré par Git). Rien à installer ni à lancer à part : au premier démarrage, l'API crée le fichier, applique automatiquement le schéma (migrations `sqlx`) et recrée les deux branches de démonstration. Les démarrages suivants réutilisent le même fichier — l'historique survit aux redémarrages.
+
+Pour changer l'emplacement du fichier, définissez `DATABASE_URL` dans un fichier `api/.env` (ignoré par Git), par ex. `DATABASE_URL=sqlite:continuum.db`.
+
+`sqlx-cli` n'est **pas nécessaire pour lancer l'API** (les migrations s'appliquent toutes seules au démarrage). Il devient utile uniquement si vous voulez écrire une *nouvelle* migration plus tard :
+```
+cargo install sqlx-cli --no-default-features --features rustls,sqlite
+cd api
+sqlx migrate add nom_de_la_migration
 ```
 
-**React (interface)**
+**2. L'interface (React)** — dans un second terminal :
 ```
 cd web
 npm install
 npm run dev
+```
+Ouvrez `http://localhost:5173`. L'interface se connecte automatiquement à l'API.
+
+**3. Le CLI (facultatif)**
+```
+cargo run -p continuum-cli
 ```
 
 ## Licence

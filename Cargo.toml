@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "graph-engine",
     "osrd-bridge",
-    "cli",
+    "cli", "api",
 ]
 
 [workspace.package]

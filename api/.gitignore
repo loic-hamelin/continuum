@@ -1,0 +1,8 @@
+/target
+
+# Fichier de base de données SQLite (et ses fichiers annexes en mode WAL)
+# et variables d'environnement locales — jamais versionnés.
+continuum.db
+continuum.db-shm
+continuum.db-wal
+.env
