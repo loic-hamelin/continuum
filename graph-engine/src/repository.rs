@@ -2,6 +2,7 @@ use crate::commit::{Commit, CommitId};
 use crate::graph::{GraphChange, GraphDiff, VersionedGraph};
 use crate::node::{NodeId, RailNode};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -179,12 +180,8 @@ impl Repository {
             .map(|(id, _)| id)
     }
 
-    /// Fusionne `source` dans `target` : calcule le diff de chaque branche
-    /// par rapport à leur ancêtre commun (en réutilisant
-    /// `VersionedGraph::diff`), et si aucun nœud n'a été modifié
-    /// différemment des deux côtés depuis cet ancêtre, applique les
-    /// changements de `source` sur `target` en créant un commit de fusion
-    /// à deux parents.
+    /// Fusionne `source` dans `target`, avec le seuil de détection de
+    /// conflit spatial par défaut (voir `DEFAULT_SPATIAL_CONFLICT_THRESHOLD_METERS`).
     pub fn merge(
         &mut self,
         source: &str,
@@ -192,6 +189,84 @@ impl Repository {
         author: impl Into<String>,
         message: impl Into<String>,
     ) -> Result<CommitId, MergeError> {
+        self.merge_with_threshold(
+            source,
+            target,
+            author,
+            message,
+            DEFAULT_SPATIAL_CONFLICT_THRESHOLD_METERS,
+        )
+    }
+
+    /// Fusionne `source` dans `target` : calcule le diff de chaque branche
+    /// par rapport à leur ancêtre commun, et si `compute_merge` ne détecte
+    /// aucun conflit, crée un commit de fusion à deux parents avec le
+    /// graphe résultant. `spatial_threshold_meters` contrôle la distance
+    /// en-deçà de laquelle deux objets ponctuels différents sur la même
+    /// voie sont considérés en conflit spatial (voir `compute_merge`).
+    pub fn merge_with_threshold(
+        &mut self,
+        source: &str,
+        target: &str,
+        author: impl Into<String>,
+        message: impl Into<String>,
+        spatial_threshold_meters: f64,
+    ) -> Result<CommitId, MergeError> {
+        let (target_tip, source_tip, ancestor_graph, source_graph, target_graph) =
+            self.load_merge_graphs(source, target)?;
+
+        let merged = compute_merge(
+            &ancestor_graph,
+            &source_graph,
+            &target_graph,
+            spatial_threshold_meters,
+        )
+        .map_err(MergeError::Conflicts)?;
+
+        Ok(self.commit_merge_result(target, target_tip, source_tip, author, message, merged))
+    }
+
+    /// Fusionne `source` dans `target` en appliquant des résolutions
+    /// choisies par l'utilisateur pour chaque conflit détecté (voir
+    /// `resolve_merge`) — l'action "Valider la fusion" de l'interface,
+    /// après un premier appel à `merge`/`merge_with_threshold` qui a
+    /// renvoyé des conflits. Les conflits sont recalculés à partir de
+    /// l'état courant des branches (pas de la liste transmise par
+    /// l'appelant), pour éviter une fusion incohérente si les branches ont
+    /// bougé entre-temps.
+    pub fn merge_resolve(
+        &mut self,
+        source: &str,
+        target: &str,
+        author: impl Into<String>,
+        message: impl Into<String>,
+        resolutions: &[ConflictResolution],
+        spatial_threshold_meters: f64,
+    ) -> Result<CommitId, MergeError> {
+        let (target_tip, source_tip, ancestor_graph, source_graph, target_graph) =
+            self.load_merge_graphs(source, target)?;
+
+        let merged = resolve_merge(
+            &ancestor_graph,
+            &source_graph,
+            &target_graph,
+            resolutions,
+            spatial_threshold_meters,
+        )
+        .map_err(MergeError::Conflicts)?;
+
+        Ok(self.commit_merge_result(target, target_tip, source_tip, author, message, merged))
+    }
+
+    /// Résout les tips des deux branches, leur ancêtre commun, et charge
+    /// les 3 instantanés de graphe correspondants — la partie commune à
+    /// `merge_with_threshold` et `merge_resolve`.
+    fn load_merge_graphs(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> Result<(CommitId, CommitId, VersionedGraph, VersionedGraph, VersionedGraph), MergeError>
+    {
         let source_tip = self.branch_tip(source).map_err(branch_not_found)?.clone();
         let target_tip = self.branch_tip(target).map_err(branch_not_found)?.clone();
 
@@ -215,48 +290,20 @@ impl Repository {
             .graph
             .clone();
 
-        let diff_source = ancestor_graph.diff(&source_graph);
-        let diff_target = ancestor_graph.diff(&target_graph);
-        let changed_in_source = changed_node_ids(&diff_source);
-        let changed_in_target = changed_node_ids(&diff_target);
+        Ok((target_tip, source_tip, ancestor_graph, source_graph, target_graph))
+    }
 
-        let mut conflicts = Vec::new();
-        for id in changed_in_source.intersection(&changed_in_target) {
-            let source_state = source_graph.nodes.get(id);
-            let target_state = target_graph.nodes.get(id);
-            if source_state != target_state {
-                conflicts.push(MergeConflict {
-                    node_id: id.clone(),
-                    ancestor: ancestor_graph.nodes.get(id).cloned(),
-                    source: source_state.cloned(),
-                    target: target_state.cloned(),
-                });
-            }
-        }
-        if !conflicts.is_empty() {
-            return Err(MergeError::Conflicts(conflicts));
-        }
-
-        let mut merged = target_graph.clone();
-        for id in &changed_in_source {
-            if changed_in_target.contains(id) {
-                continue; // changé des deux côtés sans conflit : donc identiquement, target est déjà à jour
-            }
-            match source_graph.nodes.get(id) {
-                Some(node) => {
-                    merged.nodes.insert(id.clone(), node.clone());
-                }
-                None => {
-                    merged.nodes.remove(id);
-                }
-            }
-        }
-        for edge in &source_graph.edges {
-            if !merged.edges.contains(edge) {
-                merged.edges.push(edge.clone());
-            }
-        }
-
+    /// Crée le commit de fusion (deux parents) à partir du graphe déjà
+    /// résolu, et avance la branche cible dessus.
+    fn commit_merge_result(
+        &mut self,
+        target: &str,
+        target_tip: CommitId,
+        source_tip: CommitId,
+        author: impl Into<String>,
+        message: impl Into<String>,
+        merged: VersionedGraph,
+    ) -> CommitId {
         let new_id = self.next_commit_id();
         let commit = Commit {
             id: new_id.clone(),
@@ -268,7 +315,7 @@ impl Repository {
         };
         self.commits.insert(new_id.clone(), commit);
         self.branches.insert(target.to_string(), new_id.clone());
-        Ok(new_id)
+        new_id
     }
 }
 
@@ -280,13 +327,350 @@ fn branch_not_found(err: RepositoryError) -> MergeError {
 }
 
 /// Ids des nœuds touchés (ajoutés, supprimés ou modifiés) par un diff.
-fn changed_node_ids(diff: &GraphDiff<'_>) -> HashSet<NodeId> {
+///
+/// `pub` : réutilisé tel quel par `api::db` qui porte ce même algorithme de
+/// fusion vers une persistance SQL (voir `api/src/db.rs`), pour ne pas
+/// dupliquer la définition de "changé" entre les deux implémentations.
+pub fn changed_node_ids(diff: &GraphDiff<'_>) -> HashSet<NodeId> {
     diff.added
         .iter()
         .map(|n| n.id.clone())
         .chain(diff.removed.iter().map(|n| n.id.clone()))
         .chain(diff.modified.iter().map(|(_, after)| after.id.clone()))
         .collect()
+}
+
+/// Distance par défaut (en mètres) en-deçà de laquelle deux objets
+/// ponctuels différents, positionnés sur la même voie, sont considérés
+/// comme un conflit spatial (voir `MergeConflict::Spatial`).
+pub const DEFAULT_SPATIAL_CONFLICT_THRESHOLD_METERS: f64 = 8.0;
+
+/// Lit la position d'un objet ponctuel le long d'une voie, à partir des
+/// propriétés `track` (chaîne) et `position` (nombre) — la convention déjà
+/// utilisée par `osrd-bridge` pour les `Signal`, et étendue aux `Switch`
+/// (dérivée de leur premier port, voir `osrd-bridge::import_from_railjson`).
+/// Volontairement générique sur `NodeKind` : ne présuppose pas quels types
+/// de nœuds portent une position, juste la présence de ces deux clés.
+fn point_position(node: &RailNode) -> Option<(NodeId, f64)> {
+    let track = node.properties.get("track")?.as_str()?.to_string();
+    let position = node.properties.get("position")?.as_f64()?;
+    Some((track, position))
+}
+
+/// Calcule le résultat d'une fusion entre `source` et `target`, par
+/// rapport à leur `ancestor` commun : soit le graphe fusionné, soit la
+/// liste des conflits qui l'en empêchent. Fonction pure (aucun accès à un
+/// historique de commits) — réutilisée à la fois par `Repository::merge`
+/// (en mémoire) et par `api::db::merge_branches` (persistance SQL), pour
+/// ne pas dupliquer cette logique entre les deux implémentations.
+///
+/// Trois types de conflit sont détectés :
+/// - `Modification` : même id, modifié différemment des deux côtés (avec
+///   ou sans ancêtre commun — deux branches peuvent aussi avoir ajouté le
+///   même id indépendamment, avec un contenu différent).
+/// - `DeletionVsModification` : un côté a supprimé l'objet, l'autre l'a
+///   modifié — un cas de conflit à part entière, distinct d'une simple
+///   modification concurrente.
+/// - `Spatial` : deux ids *différents*, chacun ajouté/modifié dans une
+///   branche différente, positionnés sur la même voie à moins de
+///   `spatial_threshold_meters` l'un de l'autre. Un diff Git classique ne
+///   détecterait jamais ce cas puisqu'il ne compare que les identifiants.
+pub fn compute_merge(
+    ancestor: &VersionedGraph,
+    source: &VersionedGraph,
+    target: &VersionedGraph,
+    spatial_threshold_meters: f64,
+) -> Result<VersionedGraph, Vec<MergeConflict>> {
+    let diff_source = ancestor.diff(source);
+    let diff_target = ancestor.diff(target);
+    let changed_in_source = changed_node_ids(&diff_source);
+    let changed_in_target = changed_node_ids(&diff_target);
+
+    let mut conflicts = Vec::new();
+
+    // --- Conflits sur un même id : modification concurrente, ou
+    // suppression d'un côté face à une modification de l'autre. ---
+    for id in changed_in_source.intersection(&changed_in_target) {
+        let source_state = source.nodes.get(id);
+        let target_state = target.nodes.get(id);
+        if source_state == target_state {
+            continue; // changé identiquement des deux côtés : pas de conflit
+        }
+        match (source_state, target_state) {
+            (None, Some(modified)) => conflicts.push(MergeConflict::DeletionVsModification {
+                node_id: id.clone(),
+                ancestor: ancestor
+                    .nodes
+                    .get(id)
+                    .cloned()
+                    .expect("un nœud supprimé doit avoir existé dans l'ancêtre"),
+                modified: modified.clone(),
+                deleted_in: ConflictSide::Source,
+            }),
+            (Some(modified), None) => conflicts.push(MergeConflict::DeletionVsModification {
+                node_id: id.clone(),
+                ancestor: ancestor
+                    .nodes
+                    .get(id)
+                    .cloned()
+                    .expect("un nœud supprimé doit avoir existé dans l'ancêtre"),
+                modified: modified.clone(),
+                deleted_in: ConflictSide::Target,
+            }),
+            (Some(s), Some(t)) => conflicts.push(MergeConflict::Modification {
+                node_id: id.clone(),
+                ancestor: ancestor.nodes.get(id).cloned(),
+                source: s.clone(),
+                target: t.clone(),
+            }),
+            (None, None) => unreachable!("source_state != target_state exclut ce cas"),
+        }
+    }
+
+    // --- Conflits spatiaux : ids différents, positions proches sur la
+    // même voie, chacun changé dans une branche différente. ---
+    for id_a in &changed_in_source {
+        let Some(node_a) = source.nodes.get(id_a) else {
+            continue; // supprimé côté source : pas de position à comparer
+        };
+        let Some((track_a, position_a)) = point_position(node_a) else {
+            continue; // pas un objet ponctuel (pas de track/position)
+        };
+        for id_b in &changed_in_target {
+            if id_a == id_b {
+                continue; // même id : déjà traité ci-dessus
+            }
+            let Some(node_b) = target.nodes.get(id_b) else {
+                continue;
+            };
+            let Some((track_b, position_b)) = point_position(node_b) else {
+                continue;
+            };
+            if track_a != track_b {
+                continue;
+            }
+            let distance = (position_a - position_b).abs();
+            if distance <= spatial_threshold_meters {
+                conflicts.push(MergeConflict::Spatial {
+                    track: track_a.clone(),
+                    source_node: node_a.clone(),
+                    source_position: position_a,
+                    target_node: node_b.clone(),
+                    target_position: position_b,
+                    distance_meters: distance,
+                });
+            }
+        }
+    }
+
+    if !conflicts.is_empty() {
+        return Err(conflicts);
+    }
+
+    let mut merged = target.clone();
+    for id in &changed_in_source {
+        if changed_in_target.contains(id) {
+            continue; // changé des deux côtés sans conflit : donc identiquement, target est déjà à jour
+        }
+        match source.nodes.get(id) {
+            Some(node) => {
+                merged.nodes.insert(id.clone(), node.clone());
+            }
+            None => {
+                merged.nodes.remove(id);
+            }
+        }
+    }
+    for edge in &source.edges {
+        if !merged.edges.contains(edge) {
+            merged.edges.push(edge.clone());
+        }
+    }
+
+    Ok(merged)
+}
+
+/// Quel côté choisir pour résoudre un conflit — voir `ConflictResolution`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolutionSide {
+    Source,
+    Target,
+}
+
+/// La résolution choisie par l'utilisateur pour un conflit donné —
+/// identifie le conflit visé (même clé que la variante `MergeConflict`
+/// correspondante) et le côté à garder. Pour `Spatial`, "garder la
+/// source" retire l'objet de la cible et inversement, puisque les deux
+/// objets sont distincts (contrairement aux deux autres variantes, où
+/// c'est le même id des deux côtés).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ConflictResolution {
+    Modification { node_id: NodeId, keep: ResolutionSide },
+    DeletionVsModification { node_id: NodeId, keep: ResolutionSide },
+    Spatial {
+        source_node_id: NodeId,
+        target_node_id: NodeId,
+        keep: ResolutionSide,
+    },
+}
+
+fn resolution_matches(resolution: &ConflictResolution, conflict: &MergeConflict) -> bool {
+    match (resolution, conflict) {
+        (
+            ConflictResolution::Modification { node_id: r, .. },
+            MergeConflict::Modification { node_id: c, .. },
+        ) => r == c,
+        (
+            ConflictResolution::DeletionVsModification { node_id: r, .. },
+            MergeConflict::DeletionVsModification { node_id: c, .. },
+        ) => r == c,
+        (
+            ConflictResolution::Spatial {
+                source_node_id,
+                target_node_id,
+                ..
+            },
+            MergeConflict::Spatial {
+                source_node,
+                target_node,
+                ..
+            },
+        ) => source_node_id == &source_node.id && target_node_id == &target_node.id,
+        _ => false,
+    }
+}
+
+fn apply_resolution(
+    merged: &mut VersionedGraph,
+    source: &VersionedGraph,
+    target: &VersionedGraph,
+    conflict: &MergeConflict,
+    resolution: &ConflictResolution,
+) {
+    match (conflict, resolution) {
+        (
+            MergeConflict::Modification { node_id, .. },
+            ConflictResolution::Modification { keep, .. },
+        )
+        | (
+            MergeConflict::DeletionVsModification { node_id, .. },
+            ConflictResolution::DeletionVsModification { keep, .. },
+        ) => {
+            let chosen = match keep {
+                ResolutionSide::Source => source,
+                ResolutionSide::Target => target,
+            };
+            match chosen.nodes.get(node_id) {
+                Some(node) => {
+                    merged.nodes.insert(node_id.clone(), node.clone());
+                }
+                None => {
+                    merged.nodes.remove(node_id);
+                }
+            }
+        }
+        (
+            MergeConflict::Spatial {
+                source_node,
+                target_node,
+                ..
+            },
+            ConflictResolution::Spatial { keep, .. },
+        ) => match keep {
+            ResolutionSide::Source => {
+                merged.nodes.remove(&target_node.id);
+                merged.nodes.insert(source_node.id.clone(), source_node.clone());
+            }
+            ResolutionSide::Target => {
+                // `target_node` est déjà présent dans `merged` (cloné
+                // depuis `target` en tout début de fusion) : rien à faire
+                // à part ne pas insérer `source_node`.
+                merged.nodes.remove(&source_node.id);
+            }
+        },
+        _ => unreachable!("resolution_matches garantit la cohérence entre kind de conflit et de résolution"),
+    }
+}
+
+/// Applique des résolutions choisies par l'utilisateur aux conflits d'une
+/// fusion, et produit le graphe résultant.
+///
+/// Recalcule les conflits à partir de l'état courant de `ancestor`,
+/// `source` et `target` (plutôt que de faire confiance à une liste de
+/// conflits transmise par l'appelant) : si les branches ont bougé entre la
+/// prévisualisation d'un merge et la validation des résolutions, la
+/// fusion reste cohérente avec l'état réel plutôt qu'avec un instantané
+/// périmé. S'il manque une résolution pour un conflit toujours présent,
+/// renvoie la liste des conflits non couverts.
+pub fn resolve_merge(
+    ancestor: &VersionedGraph,
+    source: &VersionedGraph,
+    target: &VersionedGraph,
+    resolutions: &[ConflictResolution],
+    spatial_threshold_meters: f64,
+) -> Result<VersionedGraph, Vec<MergeConflict>> {
+    let conflicts = match compute_merge(ancestor, source, target, spatial_threshold_meters) {
+        Ok(merged) => return Ok(merged), // plus de conflit : les résolutions sont sans objet
+        Err(conflicts) => conflicts,
+    };
+
+    let diff_source = ancestor.diff(source);
+    let changed_in_source = changed_node_ids(&diff_source);
+
+    // Ids concernés par un conflit : traités explicitement via une
+    // résolution ci-dessous, pas par la passe "changements sans conflit".
+    let mut conflicting_ids: HashSet<NodeId> = HashSet::new();
+    for conflict in &conflicts {
+        match conflict {
+            MergeConflict::Modification { node_id, .. }
+            | MergeConflict::DeletionVsModification { node_id, .. } => {
+                conflicting_ids.insert(node_id.clone());
+            }
+            MergeConflict::Spatial {
+                source_node,
+                target_node,
+                ..
+            } => {
+                conflicting_ids.insert(source_node.id.clone());
+                conflicting_ids.insert(target_node.id.clone());
+            }
+        }
+    }
+
+    let mut merged = target.clone();
+    for id in &changed_in_source {
+        if conflicting_ids.contains(id) {
+            continue;
+        }
+        match source.nodes.get(id) {
+            Some(node) => {
+                merged.nodes.insert(id.clone(), node.clone());
+            }
+            None => {
+                merged.nodes.remove(id);
+            }
+        }
+    }
+    for edge in &source.edges {
+        if !merged.edges.contains(edge) {
+            merged.edges.push(edge.clone());
+        }
+    }
+
+    let mut missing = Vec::new();
+    for conflict in &conflicts {
+        match resolutions.iter().find(|r| resolution_matches(r, conflict)) {
+            Some(resolution) => apply_resolution(&mut merged, source, target, conflict, resolution),
+            None => missing.push(conflict.clone()),
+        }
+    }
+    if !missing.is_empty() {
+        return Err(missing);
+    }
+
+    Ok(merged)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -310,14 +694,49 @@ impl fmt::Display for RepositoryError {
 
 impl std::error::Error for RepositoryError {}
 
-/// Un conflit détecté lors d'un merge : le même nœud a été modifié
-/// différemment de part et d'autre depuis l'ancêtre commun.
-#[derive(Debug, PartialEq)]
-pub struct MergeConflict {
-    pub node_id: NodeId,
-    pub ancestor: Option<RailNode>,
-    pub source: Option<RailNode>,
-    pub target: Option<RailNode>,
+/// De quel côté un nœud a été supprimé, dans un conflit
+/// `DeletionVsModification`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictSide {
+    Source,
+    Target,
+}
+
+/// Un conflit détecté lors d'un merge — voir `compute_merge` pour le
+/// détail de la détection de chaque variante.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MergeConflict {
+    /// Le même nœud a été modifié différemment des deux côtés (aucune
+    /// suppression impliquée). `ancestor` est `None` si les deux branches
+    /// ont ajouté ce même id indépendamment, avec un contenu différent.
+    Modification {
+        node_id: NodeId,
+        ancestor: Option<RailNode>,
+        source: RailNode,
+        target: RailNode,
+    },
+    /// Un côté a supprimé le nœud, l'autre l'a modifié.
+    DeletionVsModification {
+        node_id: NodeId,
+        ancestor: RailNode,
+        /// Le nœud tel que modifié par le côté qui ne l'a pas supprimé.
+        modified: RailNode,
+        deleted_in: ConflictSide,
+    },
+    /// Deux nœuds *différents*, ajoutés/modifiés chacun dans une branche
+    /// différente, mais positionnés sur la même voie à moins de
+    /// `distance_meters` l'un de l'autre — un conflit spécifique au
+    /// ferroviaire qu'un diff par id ne détecterait jamais.
+    Spatial {
+        track: NodeId,
+        source_node: RailNode,
+        source_position: f64,
+        target_node: RailNode,
+        target_position: f64,
+        distance_meters: f64,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -474,9 +893,309 @@ mod tests {
         match result {
             Err(MergeError::Conflicts(conflicts)) => {
                 assert_eq!(conflicts.len(), 1);
-                assert_eq!(conflicts[0].node_id, "voie-12");
+                match &conflicts[0] {
+                    MergeConflict::Modification { node_id, .. } => assert_eq!(node_id, "voie-12"),
+                    other => panic!("attendu Modification, obtenu {other:?}"),
+                }
             }
             other => panic!("un conflit était attendu, obtenu : {other:?}"),
+        }
+    }
+
+    #[test]
+    fn merge_detects_conflict_when_one_side_deletes_and_the_other_modifies() {
+        let mut repo = Repository::init("loic", "Initialisation du dépôt");
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12")),
+            "loic",
+            "Ajout voie 12",
+        )
+        .unwrap();
+        let ancestor_id = repo.branch_tip(DEFAULT_BRANCH).unwrap().clone();
+        repo.create_branch("etude-capacite", &ancestor_id).unwrap();
+
+        // Côté étude : suppression de la voie.
+        repo.commit_change(
+            "etude-capacite",
+            GraphChange::new().remove_node("voie-12"),
+            "loic",
+            "Suppression voie 12",
+        )
+        .unwrap();
+
+        // Côté référence : modification de la même voie.
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12 renommée")),
+            "loic",
+            "Renomme voie 12",
+        )
+        .unwrap();
+
+        let result = repo.merge("etude-capacite", DEFAULT_BRANCH, "loic", "Merge etude-capacite");
+
+        match result {
+            Err(MergeError::Conflicts(conflicts)) => {
+                assert_eq!(conflicts.len(), 1);
+                match &conflicts[0] {
+                    MergeConflict::DeletionVsModification {
+                        node_id,
+                        deleted_in,
+                        ..
+                    } => {
+                        assert_eq!(node_id, "voie-12");
+                        assert_eq!(*deleted_in, ConflictSide::Source);
+                    }
+                    other => panic!("attendu DeletionVsModification, obtenu {other:?}"),
+                }
+            }
+            other => panic!("un conflit était attendu, obtenu : {other:?}"),
+        }
+    }
+
+    /// Construit un nœud ponctuel (aiguillage, signal...) positionné le
+    /// long d'une voie — reprend la convention `track`/`position` utilisée
+    /// par `osrd-bridge` (voir `point_position` dans ce module).
+    fn point_node(id: &str, track: &str, position: f64) -> RailNode {
+        let mut node = RailNode::new(id, NodeKind::AppareilDeVoie, id);
+        node.properties
+            .insert("track".to_string(), serde_json::json!(track));
+        node.properties
+            .insert("position".to_string(), serde_json::json!(position));
+        node
+    }
+
+    #[test]
+    fn merge_detects_spatial_conflict_between_two_new_objects_close_on_the_same_track() {
+        let mut repo = Repository::init("loic", "Initialisation du dépôt");
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("TA0", NodeKind::Voie, "Voie A")),
+            "loic",
+            "Ajout voie TA0",
+        )
+        .unwrap();
+        let ancestor_id = repo.branch_tip(DEFAULT_BRANCH).unwrap().clone();
+        repo.create_branch("etude-capacite", &ancestor_id).unwrap();
+
+        // Deux aiguillages différents, ajoutés indépendamment à 4m d'écart
+        // sur la même voie TA0 — aucun diff par id ne verrait de problème.
+        repo.commit_change(
+            "etude-capacite",
+            GraphChange::new().add_node(point_node("aiguille-a", "TA0", 100.0)),
+            "loic",
+            "Ajout aiguille A (étude)",
+        )
+        .unwrap();
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(point_node("aiguille-b", "TA0", 104.0)),
+            "loic",
+            "Ajout aiguille B (référence)",
+        )
+        .unwrap();
+
+        let result = repo.merge("etude-capacite", DEFAULT_BRANCH, "loic", "Merge etude-capacite");
+
+        match result {
+            Err(MergeError::Conflicts(conflicts)) => {
+                assert_eq!(conflicts.len(), 1);
+                match &conflicts[0] {
+                    MergeConflict::Spatial {
+                        track,
+                        distance_meters,
+                        ..
+                    } => {
+                        assert_eq!(track, "TA0");
+                        assert!((*distance_meters - 4.0).abs() < f64::EPSILON);
+                    }
+                    other => panic!("attendu Spatial, obtenu {other:?}"),
+                }
+            }
+            other => panic!("un conflit spatial était attendu, obtenu : {other:?}"),
+        }
+    }
+
+    #[test]
+    fn merge_does_not_flag_distant_objects_on_the_same_track_as_spatial_conflict() {
+        let mut repo = Repository::init("loic", "Initialisation du dépôt");
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("TA0", NodeKind::Voie, "Voie A")),
+            "loic",
+            "Ajout voie TA0",
+        )
+        .unwrap();
+        let ancestor_id = repo.branch_tip(DEFAULT_BRANCH).unwrap().clone();
+        repo.create_branch("etude-capacite", &ancestor_id).unwrap();
+
+        // Même montage, mais à 400m d'écart : largement au-delà du seuil
+        // par défaut (8m) — pas de conflit spatial.
+        repo.commit_change(
+            "etude-capacite",
+            GraphChange::new().add_node(point_node("aiguille-a", "TA0", 100.0)),
+            "loic",
+            "Ajout aiguille A (étude)",
+        )
+        .unwrap();
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(point_node("aiguille-b", "TA0", 500.0)),
+            "loic",
+            "Ajout aiguille B (référence)",
+        )
+        .unwrap();
+
+        let result = repo.merge("etude-capacite", DEFAULT_BRANCH, "loic", "Merge etude-capacite");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn merge_resolve_applies_chosen_side_for_a_modification_conflict() {
+        let mut repo = Repository::init("loic", "Initialisation du dépôt");
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12")),
+            "loic",
+            "Ajout voie 12",
+        )
+        .unwrap();
+        let ancestor_id = repo.branch_tip(DEFAULT_BRANCH).unwrap().clone();
+        repo.create_branch("etude-capacite", &ancestor_id).unwrap();
+
+        repo.commit_change(
+            "etude-capacite",
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12 (étude)")),
+            "loic",
+            "Renomme voie 12 (étude)",
+        )
+        .unwrap();
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12 (référence)")),
+            "loic",
+            "Renomme voie 12 (référence)",
+        )
+        .unwrap();
+
+        // Premier essai sans résolution : conflit, comme attendu.
+        assert!(matches!(
+            repo.merge("etude-capacite", DEFAULT_BRANCH, "loic", "Merge"),
+            Err(MergeError::Conflicts(_))
+        ));
+
+        // On choisit de garder la version de la source.
+        let resolutions = vec![ConflictResolution::Modification {
+            node_id: "voie-12".to_string(),
+            keep: ResolutionSide::Source,
+        }];
+        let merge_id = repo
+            .merge_resolve(
+                "etude-capacite",
+                DEFAULT_BRANCH,
+                "loic",
+                "Merge résolu",
+                &resolutions,
+                DEFAULT_SPATIAL_CONFLICT_THRESHOLD_METERS,
+            )
+            .unwrap();
+
+        let merged = repo.commit(&merge_id).unwrap();
+        assert_eq!(merged.graph.nodes["voie-12"].label, "Voie 12 (étude)");
+    }
+
+    #[test]
+    fn merge_resolve_applies_chosen_side_for_a_spatial_conflict() {
+        let mut repo = Repository::init("loic", "Initialisation du dépôt");
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("TA0", NodeKind::Voie, "Voie A")),
+            "loic",
+            "Ajout voie TA0",
+        )
+        .unwrap();
+        let ancestor_id = repo.branch_tip(DEFAULT_BRANCH).unwrap().clone();
+        repo.create_branch("etude-capacite", &ancestor_id).unwrap();
+
+        repo.commit_change(
+            "etude-capacite",
+            GraphChange::new().add_node(point_node("aiguille-a", "TA0", 100.0)),
+            "loic",
+            "Ajout aiguille A (étude)",
+        )
+        .unwrap();
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(point_node("aiguille-b", "TA0", 104.0)),
+            "loic",
+            "Ajout aiguille B (référence)",
+        )
+        .unwrap();
+
+        // On choisit de garder l'aiguillage de la cible (référence).
+        let resolutions = vec![ConflictResolution::Spatial {
+            source_node_id: "aiguille-a".to_string(),
+            target_node_id: "aiguille-b".to_string(),
+            keep: ResolutionSide::Target,
+        }];
+        let merge_id = repo
+            .merge_resolve(
+                "etude-capacite",
+                DEFAULT_BRANCH,
+                "loic",
+                "Merge résolu",
+                &resolutions,
+                DEFAULT_SPATIAL_CONFLICT_THRESHOLD_METERS,
+            )
+            .unwrap();
+
+        let merged = repo.commit(&merge_id).unwrap();
+        assert!(merged.graph.nodes.contains_key("aiguille-b"));
+        assert!(!merged.graph.nodes.contains_key("aiguille-a"));
+    }
+
+    #[test]
+    fn merge_resolve_reports_conflicts_still_missing_a_resolution() {
+        let mut repo = Repository::init("loic", "Initialisation du dépôt");
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12")),
+            "loic",
+            "Ajout voie 12",
+        )
+        .unwrap();
+        let ancestor_id = repo.branch_tip(DEFAULT_BRANCH).unwrap().clone();
+        repo.create_branch("etude-capacite", &ancestor_id).unwrap();
+
+        repo.commit_change(
+            "etude-capacite",
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12 (étude)")),
+            "loic",
+            "Renomme voie 12 (étude)",
+        )
+        .unwrap();
+        repo.commit_change(
+            DEFAULT_BRANCH,
+            GraphChange::new().add_node(RailNode::new("voie-12", NodeKind::Voie, "Voie 12 (référence)")),
+            "loic",
+            "Renomme voie 12 (référence)",
+        )
+        .unwrap();
+
+        // Aucune résolution fournie pour l'unique conflit : doit échouer
+        // en listant précisément ce qui manque.
+        let result = repo.merge_resolve(
+            "etude-capacite",
+            DEFAULT_BRANCH,
+            "loic",
+            "Merge résolu",
+            &[],
+            DEFAULT_SPATIAL_CONFLICT_THRESHOLD_METERS,
+        );
+        match result {
+            Err(MergeError::Conflicts(conflicts)) => assert_eq!(conflicts.len(), 1),
+            other => panic!("attendu des conflits non résolus, obtenu : {other:?}"),
         }
     }
 

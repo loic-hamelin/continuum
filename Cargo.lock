@@ -419,6 +419,7 @@ dependencies = [
  "actix-web",
  "chrono",
  "continuum_graph_engine",
+ "continuum_osrd_bridge",
  "dotenvy",
  "serde",
  "serde_json",
@@ -441,6 +442,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -448,6 +450,8 @@ name = "continuum_osrd_bridge"
 version = "0.1.0"
 dependencies = [
  "continuum_graph_engine",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 continuum_graph_engine = { path = "../graph-engine" }
+continuum_osrd_bridge = { path = "../osrd-bridge" }
 actix-web = "4"
 actix-cors = "0.7"
 serde = { version = "1", features = ["derive"] }

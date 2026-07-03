@@ -16,5 +16,7 @@ pub use graph::{Edge, EdgeKind, GraphChange, GraphDiff, VersionedGraph};
 pub use node::{NodeId, NodeKind, RailNode};
 pub use commit::{Commit, CommitId};
 pub use repository::{
-    MergeConflict, MergeError, Repository, RepositoryError, DEFAULT_BRANCH,
+    changed_node_ids, compute_merge, resolve_merge, ConflictResolution, ConflictSide,
+    MergeConflict, MergeError, Repository, RepositoryError, ResolutionSide, DEFAULT_BRANCH,
+    DEFAULT_SPATIAL_CONFLICT_THRESHOLD_METERS,
 };

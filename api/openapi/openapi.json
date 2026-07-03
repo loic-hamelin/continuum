@@ -22,6 +22,32 @@
             "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } }
           }
         }
+      },
+      "post": {
+        "summary": "Crée une nouvelle branche à partir d'un commit existant",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "description": "Nom de la nouvelle branche" },
+                  "from_commit": {
+                    "type": "string",
+                    "description": "Commit de départ — par défaut, le dernier commit de la branche de référence"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Branche créée — renvoie {name, commit_id}" },
+          "404": { "description": "Commit de départ (ou branche de référence par défaut) introuvable" },
+          "409": { "description": "Une branche avec ce nom existe déjà" }
+        }
       }
     },
     "/branches/{name}": {
@@ -36,6 +62,67 @@
         }
       }
     },
+    "/branches/{name}/commits": {
+      "post": {
+        "summary": "Committe un changement (ajout/suppression de nœuds) sur cette branche",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["author", "message"],
+                "properties": {
+                  "author": { "type": "string" },
+                  "message": { "type": "string" },
+                  "add_nodes": {
+                    "type": "array",
+                    "description": "Nœuds à ajouter (RailNode complet : id, kind, label, properties)",
+                    "items": { "type": "object" }
+                  },
+                  "remove_nodes": {
+                    "type": "array",
+                    "description": "Ids des nœuds à supprimer",
+                    "items": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Commit créé — renvoie {commit_id}" },
+          "404": { "description": "Branche inconnue" }
+        }
+      }
+    },
+    "/branches/{name}/history": {
+      "get": {
+        "summary": "L'historique de la branche, du commit le plus récent au plus ancien",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Liste des commits (id, parents, author, message, created_at)" },
+          "404": { "description": "Branche inconnue" }
+        }
+      }
+    },
+    "/commits/{id}/graph": {
+      "get": {
+        "summary": "Reconstruit l'état complet du graphe à ce commit précis (« time machine »)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Le graphe reconstruit à ce commit (nœuds et arêtes)" },
+          "404": { "description": "Commit inconnu" }
+        }
+      }
+    },
     "/diff": {
       "get": {
         "summary": "Compare deux branches",
@@ -46,6 +133,85 @@
         "responses": {
           "200": { "description": "Nœuds ajoutés / supprimés entre les deux branches" },
           "404": { "description": "Base ou compare introuvable" }
+        }
+      }
+    },
+    "/merge": {
+      "post": {
+        "summary": "Fusionne une branche source dans une branche cible",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["source", "target", "author", "message"],
+                "properties": {
+                  "source": { "type": "string" },
+                  "target": { "type": "string" },
+                  "author": { "type": "string" },
+                  "message": { "type": "string" },
+                  "spatial_threshold_meters": {
+                    "type": "number",
+                    "description": "Distance (mètres) en-deçà de laquelle deux objets ponctuels différents sur la même voie sont en conflit spatial. Défaut : 8."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Fusion réussie — renvoie {commit_id} du commit de fusion" },
+          "404": { "description": "Branche source ou cible inconnue" },
+          "409": {
+            "description": "Fusion impossible : aucun ancêtre commun, ou conflit(s) détecté(s). Renvoie {error, conflicts}, où chaque élément de conflicts a un champ discriminant 'kind' : 'modification' ({node_id, ancestor?, source, target}), 'deletion_vs_modification' ({node_id, ancestor, modified, deleted_in: 'source'|'target'}), ou 'spatial' ({track, source_node, source_position, target_node, target_position, distance_meters})."
+          }
+        }
+      }
+    },
+    "/merge/resolve": {
+      "post": {
+        "summary": "Applique des résolutions choisies pour chaque conflit d'une fusion, et committe le résultat",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["source", "target", "author", "message", "resolutions"],
+                "properties": {
+                  "source": { "type": "string" },
+                  "target": { "type": "string" },
+                  "author": { "type": "string" },
+                  "message": { "type": "string" },
+                  "spatial_threshold_meters": { "type": "number", "description": "Doit correspondre à celui utilisé lors de l'appel /merge initial. Défaut : 8." },
+                  "resolutions": {
+                    "type": "array",
+                    "description": "Une résolution par conflit renvoyé par /merge. Champ discriminant 'kind' : 'modification'/'deletion_vs_modification' ({kind, node_id, keep: 'source'|'target'}), ou 'spatial' ({kind, source_node_id, target_node_id, keep: 'source'|'target'}).",
+                    "items": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Fusion réussie — renvoie {commit_id} du commit de fusion" },
+          "404": { "description": "Branche source ou cible inconnue" },
+          "409": {
+            "description": "Des conflits restent non couverts par 'resolutions' (ou les branches ont bougé depuis la prévisualisation) : renvoie {error, conflicts} avec les conflits encore non résolus, même forme que POST /merge."
+          }
+        }
+      }
+    },
+    "/debug/seed-conflict": {
+      "post": {
+        "summary": "[Développement uniquement] Génère un conflit spatial de démonstration réaliste",
+        "description": "Endpoint de développement, pas destiné à un usage en production : déplace deux aiguillages existants de l'infra chargée à quelques mètres l'un de l'autre sur la même voie, chacun dans une branche différente, pour tester/démontrer la détection de conflit spatial sans construire le scénario à la main.",
+        "responses": {
+          "200": { "description": "Renvoie {branch_a, branch_b} : les deux branches à comparer/fusionner pour voir le conflit." },
+          "404": { "description": "La branche référence n'existe pas" },
+          "422": { "description": "Scénario impossible à construire (moins de deux aiguillages, ou aucune voie, dans la branche référence)" }
         }
       }
     }

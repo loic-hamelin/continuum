@@ -1,43 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
 import "./theme.css";
 import "./App.css";
-import { continuumApi, type RailNode, type NodeKind } from "./api";
-
-const KIND_LABELS: Record<NodeKind, string> = {
-  Voie: "Voie",
-  AppareilDeVoie: "Appareil de voie",
-  Signal: "Signal",
-  Sillon: "Sillon",
-  Horaire: "Horaire",
-  ProjetInvestissement: "Projet d'investissement",
-};
-
-// Chaque type d'objet du graphe hétérogène a sa propre couleur, à la façon
-// dont OSRD distingue ses catégories de trains — voir theme.css.
-const KIND_CLASS: Record<NodeKind, string> = {
-  Voie: "kind-voie",
-  AppareilDeVoie: "kind-appareil",
-  Signal: "kind-signal",
-  Sillon: "kind-sillon",
-  Horaire: "kind-horaire",
-  ProjetInvestissement: "kind-projet",
-};
+import {
+  continuumApi,
+  type RailNode,
+  type Commit,
+  type Graph,
+  type MergeConflict,
+  type ConflictSide,
+} from "./api";
+import { conflictSourceNodeIds, conflictTargetNodeIds } from "./conflictUtils";
+import { HistoryBoard } from "./components/HistoryBoard";
+import { CreateBranchForm } from "./components/CreateBranchForm";
+import { CommitForm } from "./components/CommitForm";
+import { MergePanel } from "./components/MergePanel";
+import { MapPair } from "./components/MapPair";
+import { ConflictResolutionPanel, buildResolutions } from "./components/ConflictResolutionPanel";
+import { NodeGroupList, type NodeRow } from "./components/NodeGroupList";
 
 type ApiStatus = "loading" | "connected" | "offline";
-
-function KindBadge({ kind }: { kind: NodeKind }) {
-  return <span className={`kind-badge ${KIND_CLASS[kind]}`}>{KIND_LABELS[kind] ?? kind}</span>;
-}
 
 function App() {
   const [status, setStatus] = useState<ApiStatus>("loading");
   const [branches, setBranches] = useState<string[]>([]);
   const [reference, setReference] = useState<string>("référence");
   const [selectedBranch, setSelectedBranch] = useState<string>("etude-capacite");
+  const [author, setAuthor] = useState<string>("");
   const [referenceNodes, setReferenceNodes] = useState<RailNode[]>([]);
   const [added, setAdded] = useState<RailNode[]>([]);
   const [removed, setRemoved] = useState<RailNode[]>([]);
+  const [history, setHistory] = useState<Commit[]>([]);
+  const [viewingCommitId, setViewingCommitId] = useState<string | null>(null);
+  const [viewingNodes, setViewingNodes] = useState<RailNode[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [mergeConflicts, setMergeConflicts] = useState<MergeConflict[] | null>(null);
+  const [mergeMessage, setMergeMessage] = useState("");
+  const [conflictSourceGraph, setConflictSourceGraph] = useState<Graph | null>(null);
+  const [conflictTargetGraph, setConflictTargetGraph] = useState<Graph | null>(null);
+  const [resolvingMerge, setResolvingMerge] = useState(false);
+  const [generatingDemoConflict, setGeneratingDemoConflict] = useState(false);
 
   useEffect(() => {
     continuumApi
@@ -46,24 +48,22 @@ function App() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  useEffect(() => {
-    if (status !== "connected") return;
+  const loadBranches = () => {
     continuumApi
       .listBranches()
       .then((names) => setBranches(names))
       .catch((e) => setError(String(e)));
-  }, [status]);
+  };
 
-  useEffect(() => {
-    if (status !== "connected") return;
+  const loadReferenceNodes = () => {
     continuumApi
       .getBranch(reference)
       .then((graph) => setReferenceNodes(Object.values(graph.nodes)))
       .catch((e) => setError(String(e)));
-  }, [status, reference]);
+  };
 
-  useEffect(() => {
-    if (status !== "connected" || !selectedBranch || selectedBranch === reference) {
+  const loadDiff = () => {
+    if (!selectedBranch || selectedBranch === reference) {
       setAdded([]);
       setRemoved([]);
       return;
@@ -75,11 +75,165 @@ function App() {
         setRemoved(result.removed);
       })
       .catch((e) => setError(String(e)));
+  };
+
+  const loadHistory = () => {
+    if (!selectedBranch) {
+      setHistory([]);
+      return;
+    }
+    continuumApi
+      .getHistory(selectedBranch)
+      .then(setHistory)
+      .catch((e) => setError(String(e)));
+  };
+
+  const clearConflicts = () => {
+    setMergeConflicts(null);
+    setConflictSourceGraph(null);
+    setConflictTargetGraph(null);
+  };
+
+  const handleConflicts = (conflicts: MergeConflict[], message: string) => {
+    setMergeConflicts(conflicts);
+    setMergeMessage(message);
+    Promise.all([continuumApi.getBranch(selectedBranch), continuumApi.getBranch(reference)])
+      .then(([sourceGraph, targetGraph]) => {
+        setConflictSourceGraph(sourceGraph);
+        setConflictTargetGraph(targetGraph);
+      })
+      .catch((e) => setError(String(e)));
+  };
+
+  const handleValidateResolutions = async (choices: Map<string, ConflictSide>) => {
+    if (!mergeConflicts) return;
+    setResolvingMerge(true);
+    try {
+      const resolutions = buildResolutions(mergeConflicts, choices);
+      const result = await continuumApi.mergeResolve(
+        selectedBranch,
+        reference,
+        author.trim() || "anonyme",
+        mergeMessage,
+        resolutions
+      );
+      if (result.status === "merged") {
+        clearConflicts();
+        setViewingCommitId(null);
+        loadReferenceNodes();
+        loadDiff();
+      } else if (result.status === "conflicts") {
+        // Les branches ont changé entre la prévisualisation et la
+        // validation, ou une résolution était incomplète : on réaffiche
+        // ce qui reste à traiter plutôt que d'échouer silencieusement.
+        setMergeConflicts(result.conflicts);
+        setError("Certains conflits restent non résolus — les branches ont peut-être changé entre-temps.");
+      } else {
+        setError(result.message);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setResolvingMerge(false);
+    }
+  };
+
+  /**
+   * Raccourci de développement : génère un conflit spatial de
+   * démonstration côté API (`POST /debug/seed-conflict`), sélectionne les
+   * deux branches renvoyées, et déclenche immédiatement la tentative de
+   * fusion pour afficher les cartes + le panneau de résolution sans autre
+   * manipulation.
+   */
+  const handleGenerateDemoConflict = async () => {
+    setGeneratingDemoConflict(true);
+    try {
+      const { branch_a, branch_b } = await continuumApi.seedDemoConflict();
+      const names = await continuumApi.listBranches();
+      setBranches(names);
+      setReference(branch_a);
+      setSelectedBranch(branch_b);
+
+      const message = `Fusion de démonstration « ${branch_b} » vers « ${branch_a} »`;
+      const result = await continuumApi.merge(branch_b, branch_a, author.trim() || "anonyme", message);
+      if (result.status === "conflicts") {
+        setMergeMessage(message);
+        setMergeConflicts(result.conflicts);
+        const [sourceGraph, targetGraph] = await Promise.all([
+          continuumApi.getBranch(branch_b),
+          continuumApi.getBranch(branch_a),
+        ]);
+        setConflictSourceGraph(sourceGraph);
+        setConflictTargetGraph(targetGraph);
+      } else if (result.status === "merged") {
+        setError("Le scénario de démonstration n'a pas produit de conflit cette fois — réessayez.");
+      } else {
+        setError(result.message);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setGeneratingDemoConflict(false);
+    }
+  };
+
+  useEffect(() => {
+    if (status !== "connected") return;
+    loadBranches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== "connected") return;
+    loadReferenceNodes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, reference]);
+
+  useEffect(() => {
+    if (status !== "connected") return;
+    loadDiff();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, reference, selectedBranch]);
+
+  useEffect(() => {
+    if (status !== "connected") return;
+    loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, selectedBranch]);
+
+  useEffect(() => {
+    if (!viewingCommitId) {
+      setViewingNodes(null);
+      return;
+    }
+    continuumApi
+      .getCommitGraph(viewingCommitId)
+      .then((graph) => setViewingNodes(Object.values(graph.nodes)))
+      .catch((e) => setError(String(e)));
+  }, [viewingCommitId]);
 
   const otherBranches = useMemo(
     () => branches.filter((b) => b !== reference),
     [branches, reference]
+  );
+
+  const displayedNodes = viewingCommitId ? viewingNodes ?? [] : referenceNodes;
+
+  const diffRows: NodeRow[] = useMemo(
+    () => [
+      ...added.map((node) => ({ node, variant: "added" as const })),
+      ...removed.map((node) => ({ node, variant: "removed" as const })),
+    ],
+    [added, removed]
+  );
+
+  const sourceConflictIds = useMemo(
+    () => (mergeConflicts ?? []).flatMap(conflictSourceNodeIds),
+    [mergeConflicts]
+  );
+  const targetConflictIds = useMemo(
+    () => (mergeConflicts ?? []).flatMap(conflictTargetNodeIds),
+    [mergeConflicts]
   );
 
   return (
@@ -104,6 +258,14 @@ function App() {
         </div>
       )}
       {error && <div className="banner banner--warning">{error}</div>}
+      {viewingCommitId && (
+        <div className="banner banner--info">
+          Vous consultez l'état au commit <code>#{viewingCommitId.slice(0, 8)}</code> —{" "}
+          <button type="button" className="banner-link" onClick={() => setViewingCommitId(null)}>
+            revenir à l'état courant
+          </button>
+        </div>
+      )}
 
       {status === "connected" && (
         <>
@@ -128,22 +290,36 @@ function App() {
                 ))}
               </select>
             </label>
+            <label>
+              Auteur
+              <input
+                type="text"
+                value={author}
+                placeholder="votre nom"
+                onChange={(e) => setAuthor(e.target.value)}
+              />
+            </label>
+            <CreateBranchForm onCreated={loadBranches} onError={setError} />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={generatingDemoConflict}
+              onClick={handleGenerateDemoConflict}
+            >
+              {generatingDemoConflict ? "Génération…" : "Générer un conflit de démonstration"}
+            </button>
           </section>
 
           <section className="columns">
             <div className="board">
               <div className="board-header">
                 <h2>État de référence</h2>
-                <span className="board-subtitle">{referenceNodes.length} nœud(s)</span>
+                <span className="board-subtitle">{displayedNodes.length} nœud(s)</span>
               </div>
-              <ul className="node-list">
-                {referenceNodes.map((n) => (
-                  <li key={n.id}>
-                    <KindBadge kind={n.kind} />
-                    {n.label}
-                  </li>
-                ))}
-              </ul>
+              <NodeGroupList
+                rows={displayedNodes.map((node) => ({ node }))}
+                emptyMessage="Aucun nœud."
+              />
             </div>
 
             <div className="board">
@@ -153,27 +329,70 @@ function App() {
                   {added.length} ajout(s) · {removed.length} suppression(s)
                 </span>
               </div>
-              <ul className="node-list">
-                {added.map((n) => (
-                  <li key={n.id} className="node-added">
-                    <span className="diff-symbol">+</span>
-                    <KindBadge kind={n.kind} />
-                    {n.label}
-                  </li>
-                ))}
-                {removed.map((n) => (
-                  <li key={n.id} className="node-removed">
-                    <span className="diff-symbol">−</span>
-                    <KindBadge kind={n.kind} />
-                    {n.label}
-                  </li>
-                ))}
-                {added.length === 0 && removed.length === 0 && (
-                  <li className="node-empty">Aucune différence avec la référence.</li>
-                )}
-              </ul>
+              <NodeGroupList
+                rows={diffRows}
+                emptyMessage="Aucune différence avec la référence."
+              />
+              {selectedBranch && selectedBranch !== reference && (
+                <div className="board-footer">
+                  <MergePanel
+                    source={selectedBranch}
+                    target={reference}
+                    author={author}
+                    addedCount={added.length}
+                    removedCount={removed.length}
+                    onMerged={() => {
+                      setViewingCommitId(null);
+                      loadReferenceNodes();
+                      loadDiff();
+                    }}
+                    onConflicts={handleConflicts}
+                    onError={setError}
+                  />
+                </div>
+              )}
             </div>
+
+            <HistoryBoard
+              branchName={selectedBranch}
+              commits={history}
+              viewingCommitId={viewingCommitId}
+              onSelectCommit={setViewingCommitId}
+            />
+
+            {selectedBranch && (
+              <CommitForm
+                branch={selectedBranch}
+                author={author}
+                onCommitted={() => {
+                  loadDiff();
+                  loadHistory();
+                }}
+                onError={setError}
+              />
+            )}
           </section>
+
+          {mergeConflicts && mergeConflicts.length > 0 && (
+            <section className="conflict-resolution">
+              <MapPair
+                sourceLabel={selectedBranch}
+                targetLabel={reference}
+                sourceGraph={conflictSourceGraph}
+                targetGraph={conflictTargetGraph}
+                sourceConflictIds={sourceConflictIds}
+                targetConflictIds={targetConflictIds}
+              />
+              <ConflictResolutionPanel
+                conflicts={mergeConflicts}
+                sourceLabel={selectedBranch}
+                targetLabel={reference}
+                onValidate={handleValidateResolutions}
+                submitting={resolvingMerge}
+                onError={setError}
+              />
+            </section>
+          )}
         </>
       )}
     </div>

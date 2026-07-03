@@ -17,9 +17,9 @@ Le moteur de simulation open-source **OSRD** (et son modèle de données **RailJ
 - [x] Squelette du projet : workspace Rust (graph-engine, osrd-bridge, api, cli) + interface React (web) connectée à l'API
 - [ ] Vérifier que `cargo build` passe bien sur votre machine (voir note dans CLAUDE.md — non vérifié en environnement de génération)
 - [x] Modélisation complète du graphe d'objets ferroviaires versionnés (branches, merge)
-- [ ] Prototype d'intégration avec OSRD / RailJSON
-- [ ] Mécanisme de détection de conflits
-- [ ] Interface de navigation temporelle (time machine)
+- [x] Prototype d'intégration avec OSRD / RailJSON
+- [x] Mécanisme de détection de conflits
+- [x] Interface de navigation temporelle (time machine)
 - [x] Persistance réelle derrière l'API (base de données plutôt que données en mémoire)
 
 ## Structure du dépôt
@@ -69,6 +69,8 @@ npm install
 npm run dev
 ```
 Ouvrez `http://localhost:5173`. L'interface se connecte automatiquement à l'API.
+
+En cas de conflit lors d'une fusion, l'action "Ouvrir dans l'éditeur OSRD" du panneau de résolution ouvre l'URL définie par la variable d'environnement Vite `VITE_OSRD_EDITOR_URL` (fichier `web/.env`), avec `http://localhost:4000` comme valeur par défaut si absente.
 
 **3. Le CLI (facultatif)**
 ```

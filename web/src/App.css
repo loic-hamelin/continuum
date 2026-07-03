@@ -88,6 +88,13 @@ body {
   margin-bottom: var(--space-3);
 }
 
+/* Aligne les boutons "nus" (pas dans un <label>) sur la même ligne de
+   base que les champs voisins, plutôt que de s'étirer sur toute la
+   hauteur de la barre d'outils. */
+.toolbar > .btn {
+  align-self: flex-end;
+}
+
 .toolbar label {
   display: flex;
   flex-direction: column;
@@ -99,7 +106,11 @@ body {
   letter-spacing: 0.03em;
 }
 
-.toolbar select {
+.toolbar select,
+.toolbar input[type="text"],
+.board-form input[type="text"],
+.board-form select,
+.merge-panel input[type="text"] {
   padding: 8px var(--space-2);
   border-radius: var(--radius-md);
   border: 1px solid var(--grey-20);
@@ -110,6 +121,60 @@ body {
   text-transform: none;
   letter-spacing: normal;
   font-weight: 400;
+}
+
+/* --- Formulaire compact inline (barre d'outils : créer une branche) --- */
+
+.inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-12);
+  color: var(--grey-60);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* --- Boutons --- */
+
+.btn {
+  padding: 8px var(--space-2);
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--primary-60);
+  color: #fff;
+  font-family: inherit;
+  font-size: var(--text-14);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--primary-70);
+}
+
+.btn:disabled {
+  background: var(--grey-30);
+  cursor: not-allowed;
+}
+
+.banner-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* --- Boards (vocabulaire OSRD : conteneur = board, avec header) --- */
@@ -168,6 +233,73 @@ body {
   font-size: var(--text-14);
 }
 
+/* --- Liste de nœuds groupée par type (NodeGroupList) : sections
+   repliables + défilement interne, pour ne pas rendre la page
+   interminable avec ~150 objets (voies, aiguillages, signaux d'une
+   infra réelle). --- */
+
+.node-group-list {
+  overflow-y: auto;
+  padding-bottom: var(--space-2);
+}
+
+.node-group + .node-group {
+  border-top: 1px solid var(--grey-10);
+}
+
+.node-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 8px var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.node-group-header:hover {
+  background: var(--grey-5);
+}
+
+.node-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-group-count {
+  font-size: var(--text-12);
+  color: var(--grey-50);
+  font-weight: 600;
+}
+
+.node-group-chevron {
+  color: var(--grey-40);
+  font-size: var(--text-12);
+}
+
+/* Lignes denses : le badge de type est déjà porté par l'en-tête du
+   groupe, pas besoin de le répéter sur chaque ligne. */
+.node-list-dense {
+  padding: 4px var(--space-3) var(--space-2) calc(var(--space-3) + var(--space-2));
+  gap: 2px;
+}
+
+.node-row-dense {
+  padding: 3px 8px;
+  font-size: var(--text-12);
+  background: transparent;
+  border-radius: 4px;
+}
+
+.node-row-dense:hover {
+  background: var(--grey-5);
+}
+
 /* --- Kind badges : une teinte par type d'objet, façon catégories de
    trains dans OSRD (voir theme.css) --- */
 
@@ -209,4 +341,180 @@ body {
   color: var(--grey-50);
   font-style: italic;
   background: transparent;
+}
+
+/* --- Formulaire dans un board (committer un changement) --- */
+
+.board-form {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.board-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-12);
+  color: var(--grey-60);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.board-footer {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+/* --- Historique / time machine --- */
+
+.commit-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.commit-entry {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--grey-5);
+  border: 1px solid transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.commit-entry:hover {
+  border-color: var(--grey-20);
+}
+
+.commit-entry--active {
+  border-color: var(--primary-60);
+  background: var(--primary-5);
+}
+
+.commit-message {
+  font-size: var(--text-14);
+  color: var(--grey-90);
+}
+
+.commit-meta {
+  font-size: var(--text-12);
+  color: var(--grey-50);
+}
+
+/* --- Fusion --- */
+
+.merge-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.merge-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-12);
+  color: var(--grey-60);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* --- Résolution de conflits (deux cartes + panneau) --- */
+
+.conflict-resolution {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.map-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.map-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.map-pane-label {
+  font-size: var(--text-12);
+  color: var(--grey-60);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.map-canvas {
+  height: 360px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--grey-10);
+}
+
+.conflict-resolution-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.conflict-resolution-item {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--error-5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conflict-resolution-description {
+  margin: 0;
+  font-size: var(--text-14);
+  color: var(--grey-90);
+}
+
+.conflict-resolution-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-secondary {
+  background: #fff;
+  color: var(--grey-90);
+  border: 1px solid var(--grey-20);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--grey-5);
+}
+
+.btn-selected {
+  border-color: var(--primary-60);
+  background: var(--primary-5);
+  color: var(--primary-80);
+}
+
+.conflict-resolution-hint {
+  font-size: var(--text-12);
+  color: var(--grey-50);
+  margin-left: var(--space-2);
 }

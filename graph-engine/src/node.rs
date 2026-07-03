@@ -29,7 +29,14 @@ pub struct RailNode {
     pub label: String,
     /// Propriétés libres — à structurer plus finement projet par projet
     /// (par ex. un type dédié par NodeKind plutôt qu'un sac de clés/valeurs).
-    pub properties: HashMap<String, String>,
+    ///
+    /// En `serde_json::Value` plutôt qu'en `String` : certaines propriétés
+    /// venant de formats externes (ex: RailJSON côté `osrd-bridge`) sont
+    /// elles-mêmes structurées — coordonnées géographiques, listes de
+    /// pentes/courbes, ports d'un aiguillage... Un simple texte forcerait
+    /// un double encodage JSON-dans-JSON. Les valeurs textuelles restent
+    /// utilisables telles quelles (`Value::String`).
+    pub properties: HashMap<String, serde_json::Value>,
 }
 
 impl RailNode {
